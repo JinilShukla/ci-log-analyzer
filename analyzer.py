@@ -34,6 +34,7 @@ from google import genai
 
 from preprocessor import preprocess
 from schema import validate, SchemaValidationError, AnalysisResult, EXAMPLE_OUTPUT
+from retriever import retrieve_similar, format_for_prompt
 
 load_dotenv()
 
@@ -105,13 +106,18 @@ Expected output:
 # Core analyzer function
 # ---------------------------------------------------------------------------
 
-def build_user_message(signal_lines: list[str]) -> str:
+def build_user_message(signal_lines: list[str], similar: list[dict] = None) -> str:
     """
-    Format the signal lines as a clean user message for the LLM.
-    We explicitly label what we're sending so the model has context.
+    Format the signal lines + optional RAG context as a user message for the LLM.
     """
     lines_text = "\n".join(f"  {line}" for line in signal_lines)
-    return f"Analyze this failed GitHub Actions job. Here are the filtered signal lines:\n\n{lines_text}"
+    message = f"Analyze this failed GitHub Actions job. Here are the filtered signal lines:\n\n{lines_text}"
+
+    if similar:
+        rag_context = format_for_prompt(similar)
+        message += f"\n\n{rag_context}"
+
+    return message
 
 
 def call_gemini(user_message: str) -> str:
@@ -197,21 +203,31 @@ def analyze(
             "The job may have passed, or the log contains no recognized error patterns."
         )
 
-    # Step 2 — Build prompt and call LLM
-    user_message = build_user_message(signal_lines)
+    # Step 2 — RAG: find similar past failures
+    print(f"  Searching history for similar failures...")
+    similar = retrieve_similar(signal_lines, top_n=3)
+    if similar:
+        print(f"  Found {len(similar)} similar past failure(s):")
+        for m in similar:
+            print(f"    [{m['similarity']*100:.1f}%] {m['repo']} / {m['job_name']}")
+    else:
+        print(f"  No similar past failures found.")
+
+    # Step 3 — Build prompt and call LLM
+    user_message = build_user_message(signal_lines, similar)
     print(f"  Calling Gemini ({MODEL})...")
     raw_response = call_gemini(user_message)
 
-    # Step 3 — Parse JSON response
+    # Step 4 — Parse JSON response
     data = parse_llm_response(raw_response)
 
-    # Step 4 — Attach pipeline metadata (not filled in by LLM)
+    # Step 5 — Attach pipeline metadata (not filled in by LLM)
     data["repo"]     = repo
     data["run_id"]   = run_id
     data["job_name"] = job_name
     data["branch"]   = branch
 
-    # Step 5 — Validate against schema
+    # Step 6 — Validate against schema
     analysis = validate(data)
     print(f"  Schema validation passed ✅")
 
