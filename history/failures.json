@@ -1,0 +1,179 @@
+[
+  {
+    "id": "hist-001",
+    "repo": "acme-org/payments-api",
+    "run_id": "11000000001",
+    "job_name": "build",
+    "branch": "main",
+    "signal_lines": [
+      "ModuleNotFoundError: No module named 'stripe'",
+      "Traceback (most recent call last):",
+      "  File \"app/billing.py\", line 3, in <module>",
+      "##[error]Process completed with exit code 1."
+    ],
+    "analysis": {
+      "root_cause_summary": "The build failed because the 'stripe' Python package was not installed before the application tried to import it.",
+      "triggering_evidence": {
+        "build": [],
+        "test": [],
+        "dependency": [
+          "ModuleNotFoundError: No module named 'stripe'",
+          "Traceback (most recent call last):",
+          "  File \"app/billing.py\", line 3, in <module>"
+        ],
+        "environment": [
+          "##[error]Process completed with exit code 1."
+        ],
+        "other": []
+      },
+      "probable_cause": "The 'stripe' package was missing from requirements.txt so it was never installed in the runner environment. The app imported it at the top level causing an immediate crash.",
+      "fix_recommendation": [
+        "Add 'stripe' to requirements.txt.",
+        "Run 'pip install -r requirements.txt' in the Install dependencies step before any application code runs."
+      ],
+      "confidence_score": { "score": 96, "label": "High" }
+    }
+  },
+  {
+    "id": "hist-002",
+    "repo": "acme-org/frontend",
+    "run_id": "11000000002",
+    "job_name": "build",
+    "branch": "feature/redesign",
+    "signal_lines": [
+      "npm ERR! code ENOENT",
+      "npm ERR! syscall open",
+      "npm ERR! path /home/runner/work/frontend/frontend/package.json",
+      "npm ERR! errno -2",
+      "##[error]Process completed with exit code 254."
+    ],
+    "analysis": {
+      "root_cause_summary": "The npm install step failed because package.json was not found at the expected path, indicating the working directory was incorrect.",
+      "triggering_evidence": {
+        "build": [],
+        "test": [],
+        "dependency": [
+          "npm ERR! code ENOENT",
+          "npm ERR! path /home/runner/work/frontend/frontend/package.json"
+        ],
+        "environment": [
+          "##[error]Process completed with exit code 254."
+        ],
+        "other": []
+      },
+      "probable_cause": "The workflow did not set the correct working-directory for the npm install step, or the checkout step placed files in a different location than expected.",
+      "fix_recommendation": [
+        "Add 'working-directory: ./frontend' to the npm install step in ci.yml.",
+        "Verify the repository structure matches the path used in the workflow."
+      ],
+      "confidence_score": { "score": 88, "label": "High" }
+    }
+  },
+  {
+    "id": "hist-003",
+    "repo": "acme-org/data-pipeline",
+    "run_id": "11000000003",
+    "job_name": "test",
+    "branch": "main",
+    "signal_lines": [
+      "FAILED tests/test_transform.py::test_clean_nulls - AssertionError: assert 0 == 5",
+      "FAILED tests/test_transform.py::test_schema_match - KeyError: 'user_id'",
+      "2 failed, 14 passed in 3.42s",
+      "##[error]Process completed with exit code 1."
+    ],
+    "analysis": {
+      "root_cause_summary": "Two pytest tests failed: a null-cleaning function returned unexpected results and a schema validation test found a missing 'user_id' key.",
+      "triggering_evidence": {
+        "build": [],
+        "test": [
+          "FAILED tests/test_transform.py::test_clean_nulls - AssertionError: assert 0 == 5",
+          "FAILED tests/test_transform.py::test_schema_match - KeyError: 'user_id'"
+        ],
+        "dependency": [],
+        "environment": [
+          "##[error]Process completed with exit code 1."
+        ],
+        "other": []
+      },
+      "probable_cause": "A recent code change to the transform module altered the null-cleaning logic and removed or renamed the 'user_id' field from the output schema without updating the tests.",
+      "fix_recommendation": [
+        "Review recent commits to transform.py for changes to null handling and schema fields.",
+        "Fix test_clean_nulls to match the new expected output, or revert the logic change.",
+        "Ensure 'user_id' is present in the output schema or update the test to reflect the renamed field."
+      ],
+      "confidence_score": { "score": 82, "label": "High" }
+    }
+  },
+  {
+    "id": "hist-004",
+    "repo": "acme-org/backend-api",
+    "run_id": "11000000004",
+    "job_name": "build",
+    "branch": "main",
+    "signal_lines": [
+      "Error: Cannot find module '@acme/shared-utils'",
+      "Require stack:",
+      "- /home/runner/work/backend-api/src/index.js",
+      "##[error]Process completed with exit code 1."
+    ],
+    "analysis": {
+      "root_cause_summary": "The Node.js build failed because an internal scoped package '@acme/shared-utils' could not be resolved during require.",
+      "triggering_evidence": {
+        "build": [
+          "Error: Cannot find module '@acme/shared-utils'",
+          "- /home/runner/work/backend-api/src/index.js"
+        ],
+        "test": [],
+        "dependency": [],
+        "environment": [
+          "##[error]Process completed with exit code 1."
+        ],
+        "other": []
+      },
+      "probable_cause": "The private npm registry credentials were not configured in the runner environment, or the .npmrc file was not committed to the repository, causing npm to fail to resolve the internal scoped package.",
+      "fix_recommendation": [
+        "Add an .npmrc file to the repo root with the private registry URL.",
+        "Store the npm registry token as a GitHub Actions secret (NPM_TOKEN).",
+        "Add a step to write .npmrc using the secret before running npm install."
+      ],
+      "confidence_score": { "score": 90, "label": "High" }
+    }
+  },
+  {
+    "id": "hist-005",
+    "repo": "acme-org/ml-training",
+    "run_id": "11000000005",
+    "job_name": "train",
+    "branch": "experiment/v2",
+    "signal_lines": [
+      "ModuleNotFoundError: No module named 'torch'",
+      "Traceback (most recent call last):",
+      "  File \"train.py\", line 1, in <module>",
+      "    import torch",
+      "##[error]Process completed with exit code 1."
+    ],
+    "analysis": {
+      "root_cause_summary": "The training job failed because PyTorch was not installed in the runner environment before the training script was executed.",
+      "triggering_evidence": {
+        "build": [],
+        "test": [],
+        "dependency": [
+          "ModuleNotFoundError: No module named 'torch'",
+          "  File \"train.py\", line 1, in <module>",
+          "    import torch"
+        ],
+        "environment": [
+          "##[error]Process completed with exit code 1."
+        ],
+        "other": []
+      },
+      "probable_cause": "PyTorch was not listed in requirements.txt or was not installed via a setup step. The ubuntu-latest runner does not include PyTorch by default.",
+      "fix_recommendation": [
+        "Add 'torch' to requirements.txt (or use 'torch==2.x.x+cpu' for CPU-only runners).",
+        "Consider using a custom Docker image with PyTorch pre-installed to speed up builds.",
+        "Cache the pip install step using actions/cache to avoid re-downloading on every run."
+      ],
+      "confidence_score": { "score": 95, "label": "High" }
+    }
+  }
+]
