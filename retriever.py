@@ -28,6 +28,7 @@ import json
 import hashlib
 import numpy as np
 from sentence_transformers import SentenceTransformer
+from schema import FailureRecord
 
 # ---------------------------------------------------------------------------
 # Config
@@ -55,35 +56,39 @@ def _get_model() -> SentenceTransformer:
 # ---------------------------------------------------------------------------
 
 def load_history() -> list[dict]:
-    """Load all past failures from the JSON store."""
+    """
+    Load RAG-eligible FailureRecords from history/failures.json.
+    REJECTED records are excluded — their fixes were wrong and should not
+    pollute future retrievals.
+    """
     if not os.path.exists(HISTORY_PATH):
         return []
     with open(HISTORY_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+        raw = json.load(f)
+    records = [FailureRecord.from_dict(r) for r in raw]
+    eligible = [r for r in records if r.is_rag_eligible()]
+    return [r.to_dict() for r in eligible]
 
 
 def save_to_history(entry: dict) -> None:
     """
-    Append a new failure record to history/failures.json.
-    Called by the feedback loop (Stage 4) when a developer confirms an analysis.
-
-    entry must have: id, repo, run_id, job_name, branch, signal_lines, analysis
+    Upsert a FailureRecord into history/failures.json.
+    Matches on record `id`. If found, replaces in-place; otherwise appends.
+    Called by analyzer.py after every run, and by feedback.py on corrections.
     """
-    history = load_history()
-
-    # Avoid duplicates by run_id + job_name
-    existing_ids = {(h["run_id"], h["job_name"]) for h in history}
-    key = (entry.get("run_id", ""), entry.get("job_name", ""))
-    if key in existing_ids:
-        return  # already stored
-
-    history.append(entry)
-    with open(HISTORY_PATH, "w", encoding="utf-8") as f:
-        json.dump(history, f, indent=2)
-
-    # Invalidate the embedding cache so it's rebuilt on next retrieval
-    if os.path.exists(CACHE_PATH):
-        os.remove(CACHE_PATH)
+    from feedback import load_all_records, save_all_records, _invalidate_cache
+    records = load_all_records()
+    replaced = False
+    new_record = FailureRecord.from_dict(entry)
+    for i, r in enumerate(records):
+        if r.id == new_record.id:
+            records[i] = new_record
+            replaced = True
+            break
+    if not replaced:
+        records.append(new_record)
+    save_all_records(records)
+    _invalidate_cache()
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +200,8 @@ def retrieve_similar(signal_lines: list[str], top_n: int = 3) -> list[dict]:
 def format_for_prompt(matches: list[dict]) -> str:
     """
     Format retrieved similar failures as a readable block for the LLM prompt.
-    This gets injected into the analyzer's context.
+    Uses the effective (corrected-if-available) fix and root cause so that
+    developer corrections automatically improve future suggestions.
     """
     if not matches:
         return ""
@@ -203,14 +209,20 @@ def format_for_prompt(matches: list[dict]) -> str:
     lines = ["## SIMILAR PAST FAILURES (for context)\n"]
     for i, match in enumerate(matches, 1):
         sim_pct = round(match["similarity"] * 100, 1)
-        analysis = match.get("analysis", {})
+        record  = FailureRecord.from_dict(match)
+        status_tag = (
+            " ✅ developer-verified" if match.get("feedback_status") in ("approved", "corrected")
+            else ""
+        )
         lines.append(
             f"### Past Failure #{i} — {match['repo']} "
-            f"(similarity: {sim_pct}%)\n"
+            f"(similarity: {sim_pct}%{status_tag})\n"
             f"Signal lines:\n" +
             "\n".join(f"  {l}" for l in match["signal_lines"]) +
-            f"\n\nRoot cause: {analysis.get('root_cause_summary', 'N/A')}\n"
-            f"Fix: {chr(10).join('  - ' + s for s in analysis.get('fix_recommendation', []))}\n"
+            f"\n\nRoot cause: {record.effective_root_cause()}\n"
+            f"Fix:\n" +
+            "\n".join(f"  {j+1}. {s}" for j, s in enumerate(record.effective_fix())) +
+            "\n"
         )
     return "\n".join(lines)
 

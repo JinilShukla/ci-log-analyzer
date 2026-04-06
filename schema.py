@@ -16,12 +16,19 @@ Fields:
 
 Optional:
   resembles_past_issue     — filled in by RAG when a similar historical failure exists
+
+FailureRecord (canonical DB-ready format):
+  The single format used by history/failures.json, the feedback loop,
+  and any future database. Every record that enters the RAG store is a FailureRecord.
+  Fields are chosen to be trivially mappable to a SQL or document DB row.
 """
 
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import dataclass, field, asdict
+from datetime import datetime, timezone
 from typing import Optional
 from enum import Enum
 
@@ -245,6 +252,125 @@ def validate(data: dict) -> AnalysisResult:
         )
 
     return AnalysisResult.from_dict(data)
+
+
+# ---------------------------------------------------------------------------
+# Feedback status
+# ---------------------------------------------------------------------------
+
+class FeedbackStatus(str, Enum):
+    PENDING   = "pending"    # analysis done, awaiting developer feedback
+    APPROVED  = "approved"   # developer confirmed the fix was correct (👍)
+    REJECTED  = "rejected"   # developer said the fix was wrong (👎)
+    CORRECTED = "corrected"  # developer provided a corrected fix
+
+
+# ---------------------------------------------------------------------------
+# FailureRecord — canonical DB-ready format
+# ---------------------------------------------------------------------------
+# This is the SINGLE format stored in history/failures.json and any future DB.
+# Every field maps directly to a SQL column or a document DB key.
+# The schema is intentionally flat (no nested objects except analysis) so that
+# migrating to PostgreSQL, SQLite, or a vector DB is a one-liner.
+#
+# DB table equivalent:
+#   failures(
+#     id TEXT PRIMARY KEY,
+#     repo TEXT, run_id TEXT, job_name TEXT, branch TEXT, pr_number TEXT,
+#     created_at TEXT,          -- ISO-8601 UTC
+#     signal_lines TEXT,        -- JSON array
+#     analysis TEXT,            -- JSON object (A–E fields)
+#     feedback_status TEXT,     -- pending / approved / rejected / corrected
+#     feedback_by TEXT,         -- GitHub username who gave feedback
+#     feedback_at TEXT,         -- ISO-8601 UTC
+#     corrected_fix TEXT,       -- JSON array of strings, if corrected
+#     corrected_root_cause TEXT -- developer's override, if corrected
+#   )
+
+@dataclass
+class FailureRecord:
+    """
+    One canonical failure record. Written to history on every analysis,
+    updated in-place when developer feedback arrives.
+    """
+    # Identity
+    id:         str = field(default_factory=lambda: f"fail-{uuid.uuid4().hex[:8]}")
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    # CI context
+    repo:      str = ""
+    run_id:    str = ""
+    job_name:  str = ""
+    branch:    str = ""
+    pr_number: str = ""          # empty for push-based runs; set for PR runs
+
+    # Raw evidence (what the retriever embeds)
+    signal_lines: list[str] = field(default_factory=list)
+
+    # LLM output (A–E)
+    analysis: dict = field(default_factory=dict)
+
+    # Feedback fields (filled in after developer responds)
+    feedback_status:       FeedbackStatus = FeedbackStatus.PENDING
+    feedback_by:           str = ""   # GitHub username
+    feedback_at:           str = ""   # ISO-8601 UTC
+    corrected_fix:         list[str] = field(default_factory=list)
+    corrected_root_cause:  str = ""
+
+    # ------------------------------------------------------------------
+    # Serialization
+    # ------------------------------------------------------------------
+
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        d["feedback_status"] = self.feedback_status.value
+        return d
+
+    def to_json(self, indent: int = 2) -> str:
+        return json.dumps(self.to_dict(), indent=indent)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "FailureRecord":
+        return cls(
+            id=d.get("id", f"fail-{uuid.uuid4().hex[:8]}"),
+            created_at=d.get("created_at", datetime.now(timezone.utc).isoformat()),
+            repo=d.get("repo", ""),
+            run_id=d.get("run_id", ""),
+            job_name=d.get("job_name", ""),
+            branch=d.get("branch", ""),
+            pr_number=d.get("pr_number", ""),
+            signal_lines=d.get("signal_lines", []),
+            analysis=d.get("analysis", {}),
+            feedback_status=FeedbackStatus(d.get("feedback_status", "pending")),
+            feedback_by=d.get("feedback_by", ""),
+            feedback_at=d.get("feedback_at", ""),
+            corrected_fix=d.get("corrected_fix", []),
+            corrected_root_cause=d.get("corrected_root_cause", ""),
+        )
+
+    def effective_fix(self) -> list[str]:
+        """
+        Return the best known fix for this failure.
+        If a developer has corrected it, return that. Otherwise return the LLM's fix.
+        This is what gets injected into the RAG prompt for future failures.
+        """
+        if self.corrected_fix:
+            return self.corrected_fix
+        return self.analysis.get("fix_recommendation", [])
+
+    def effective_root_cause(self) -> str:
+        """Return developer-corrected root cause, or the LLM's original."""
+        if self.corrected_root_cause:
+            return self.corrected_root_cause
+        return self.analysis.get("root_cause_summary", "")
+
+    def is_rag_eligible(self) -> bool:
+        """
+        Only APPROVED or CORRECTED records are used in RAG retrieval.
+        PENDING records are included too (we don't gate on feedback for speed),
+        but REJECTED records are excluded — they had wrong fixes.
+        """
+        return self.feedback_status != FeedbackStatus.REJECTED
 
 
 # ---------------------------------------------------------------------------
