@@ -33,8 +33,8 @@ from dotenv import load_dotenv
 from google import genai
 
 from preprocessor import preprocess
-from schema import validate, SchemaValidationError, AnalysisResult, EXAMPLE_OUTPUT
-from retriever import retrieve_similar, format_for_prompt
+from schema import validate, SchemaValidationError, AnalysisResult, FailureRecord, EXAMPLE_OUTPUT
+from retriever import retrieve_similar, format_for_prompt, save_to_history
 
 load_dotenv()
 
@@ -173,10 +173,11 @@ def analyze(
     run_id: str = "",
     job_name: str = "",
     branch: str = "",
+    pr_number: str = "",
     context_lines: int = 2,
-) -> AnalysisResult:
+) -> tuple[AnalysisResult, FailureRecord]:
     """
-    Full pipeline: preprocess log → call LLM → validate → return AnalysisResult.
+    Full pipeline: preprocess log → RAG retrieval → LLM → validate → save → return.
 
     Args:
         input_path:    Path to the raw .txt log file
@@ -184,10 +185,12 @@ def analyze(
         run_id:        Workflow run ID
         job_name:      Name of the job being analyzed
         branch:        Git branch the run was triggered on
+        pr_number:     PR number that triggered this run (empty for push runs)
         context_lines: Lines of context around each signal line (default 2)
 
     Returns:
-        A validated AnalysisResult with all A–E fields populated.
+        (AnalysisResult, FailureRecord) — the validated LLM output and the
+        persisted record (with its ID you can use for feedback later).
     """
     # Step 1 — Preprocess: strip noise, extract signal lines
     print(f"  Preprocessing log: {input_path}")
@@ -231,7 +234,20 @@ def analyze(
     analysis = validate(data)
     print(f"  Schema validation passed ✅")
 
-    return analysis
+    # Step 7 — Persist as a FailureRecord (status=pending, awaiting feedback)
+    record = FailureRecord(
+        repo=repo,
+        run_id=run_id,
+        job_name=job_name,
+        branch=branch,
+        pr_number=pr_number,
+        signal_lines=signal_lines,
+        analysis=analysis.to_dict(),
+    )
+    save_to_history(record.to_dict())
+    print(f"  Saved as FailureRecord ID: {record.id}  (use this ID to submit feedback)")
+
+    return analysis, record
 
 
 # ---------------------------------------------------------------------------
@@ -242,12 +258,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Analyze a GitHub Actions log file using Gemini LLM."
     )
-    parser.add_argument("--input",    required=True,  help="Path to the raw log .txt file")
-    parser.add_argument("--repo",     default="",     help="GitHub repo (owner/repo)")
-    parser.add_argument("--run_id",   default="",     help="Workflow run ID")
-    parser.add_argument("--job_name", default="",     help="Job name")
-    parser.add_argument("--branch",   default="",     help="Git branch")
-    parser.add_argument("--context",  type=int, default=2, help="Context lines around signal lines")
+    parser.add_argument("--input",     required=True,  help="Path to the raw log .txt file")
+    parser.add_argument("--repo",      default="",     help="GitHub repo (owner/repo)")
+    parser.add_argument("--run_id",    default="",     help="Workflow run ID")
+    parser.add_argument("--job_name",  default="",     help="Job name")
+    parser.add_argument("--branch",    default="",     help="Git branch")
+    parser.add_argument("--pr_number", default="",     help="PR number (if triggered by a PR)")
+    parser.add_argument("--context",   type=int, default=2, help="Context lines around signal lines")
     args = parser.parse_args()
 
     if not os.path.exists(args.input):
@@ -257,12 +274,13 @@ if __name__ == "__main__":
     print(f"\nAnalyzing: {args.input}\n")
 
     try:
-        result = analyze(
+        result, record = analyze(
             input_path=args.input,
             repo=args.repo,
             run_id=args.run_id,
             job_name=args.job_name,
             branch=args.branch,
+            pr_number=args.pr_number,
             context_lines=args.context,
         )
 
@@ -275,7 +293,11 @@ if __name__ == "__main__":
         output_path = os.path.splitext(args.input)[0] + ".analysis.json"
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(result.to_json())
-        print(f"\nSaved → {output_path}")
+        print(f"\nSaved analysis → {output_path}")
+        print(f"Record ID      → {record.id}")
+        print(f"\nTo submit feedback:")
+        print(f"  python3 feedback.py --id {record.id} --status approved --by <your-username>")
+        print(f"  python3 feedback.py --id {record.id} --status corrected --by <your-username> --fix 'step 1' 'step 2'")
 
     except SchemaValidationError as e:
         print(f"\n❌ Schema validation failed:\n{e}")

@@ -1,10 +1,12 @@
 [
   {
     "id": "hist-001",
+    "created_at": "2026-04-06T02:59:22.912277+00:00",
     "repo": "acme-org/payments-api",
     "run_id": "11000000001",
     "job_name": "build",
     "branch": "main",
+    "pr_number": "",
     "signal_lines": [
       "ModuleNotFoundError: No module named 'stripe'",
       "Traceback (most recent call last):",
@@ -31,15 +33,25 @@
         "Add 'stripe' to requirements.txt.",
         "Run 'pip install -r requirements.txt' in the Install dependencies step before any application code runs."
       ],
-      "confidence_score": { "score": 96, "label": "High" }
-    }
+      "confidence_score": {
+        "score": 96,
+        "label": "High"
+      }
+    },
+    "feedback_status": "approved",
+    "feedback_by": "seed-data",
+    "feedback_at": "2026-04-06T03:00:47.084303+00:00",
+    "corrected_fix": [],
+    "corrected_root_cause": ""
   },
   {
     "id": "hist-002",
+    "created_at": "2026-04-06T02:59:22.912355+00:00",
     "repo": "acme-org/frontend",
     "run_id": "11000000002",
     "job_name": "build",
     "branch": "feature/redesign",
+    "pr_number": "",
     "signal_lines": [
       "npm ERR! code ENOENT",
       "npm ERR! syscall open",
@@ -66,15 +78,25 @@
         "Add 'working-directory: ./frontend' to the npm install step in ci.yml.",
         "Verify the repository structure matches the path used in the workflow."
       ],
-      "confidence_score": { "score": 88, "label": "High" }
-    }
+      "confidence_score": {
+        "score": 88,
+        "label": "High"
+      }
+    },
+    "feedback_status": "approved",
+    "feedback_by": "seed-data",
+    "feedback_at": "2026-04-06T02:59:22.912356+00:00",
+    "corrected_fix": [],
+    "corrected_root_cause": ""
   },
   {
     "id": "hist-003",
+    "created_at": "2026-04-06T02:59:22.912357+00:00",
     "repo": "acme-org/data-pipeline",
     "run_id": "11000000003",
     "job_name": "test",
     "branch": "main",
+    "pr_number": "",
     "signal_lines": [
       "FAILED tests/test_transform.py::test_clean_nulls - AssertionError: assert 0 == 5",
       "FAILED tests/test_transform.py::test_schema_match - KeyError: 'user_id'",
@@ -101,15 +123,25 @@
         "Fix test_clean_nulls to match the new expected output, or revert the logic change.",
         "Ensure 'user_id' is present in the output schema or update the test to reflect the renamed field."
       ],
-      "confidence_score": { "score": 82, "label": "High" }
-    }
+      "confidence_score": {
+        "score": 82,
+        "label": "High"
+      }
+    },
+    "feedback_status": "approved",
+    "feedback_by": "seed-data",
+    "feedback_at": "2026-04-06T02:59:22.912358+00:00",
+    "corrected_fix": [],
+    "corrected_root_cause": ""
   },
   {
     "id": "hist-004",
+    "created_at": "2026-04-06T02:59:22.912358+00:00",
     "repo": "acme-org/backend-api",
     "run_id": "11000000004",
     "job_name": "build",
     "branch": "main",
+    "pr_number": "",
     "signal_lines": [
       "Error: Cannot find module '@acme/shared-utils'",
       "Require stack:",
@@ -136,15 +168,25 @@
         "Store the npm registry token as a GitHub Actions secret (NPM_TOKEN).",
         "Add a step to write .npmrc using the secret before running npm install."
       ],
-      "confidence_score": { "score": 90, "label": "High" }
-    }
+      "confidence_score": {
+        "score": 90,
+        "label": "High"
+      }
+    },
+    "feedback_status": "approved",
+    "feedback_by": "seed-data",
+    "feedback_at": "2026-04-06T02:59:22.912359+00:00",
+    "corrected_fix": [],
+    "corrected_root_cause": ""
   },
   {
     "id": "hist-005",
+    "created_at": "2026-04-06T02:59:22.912360+00:00",
     "repo": "acme-org/ml-training",
     "run_id": "11000000005",
     "job_name": "train",
     "branch": "experiment/v2",
+    "pr_number": "",
     "signal_lines": [
       "ModuleNotFoundError: No module named 'torch'",
       "Traceback (most recent call last):",
@@ -173,7 +215,15 @@
         "Consider using a custom Docker image with PyTorch pre-installed to speed up builds.",
         "Cache the pip install step using actions/cache to avoid re-downloading on every run."
       ],
-      "confidence_score": { "score": 95, "label": "High" }
-    }
+      "confidence_score": {
+        "score": 95,
+        "label": "High"
+      }
+    },
+    "feedback_status": "approved",
+    "feedback_by": "seed-data",
+    "feedback_at": "2026-04-06T02:59:22.912360+00:00",
+    "corrected_fix": [],
+    "corrected_root_cause": ""
   }
 ]
